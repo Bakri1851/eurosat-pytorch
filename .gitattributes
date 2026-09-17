@@ -1,0 +1,11 @@
+# Normalise line endings in the repository; stops whole-file CRLF diffs.
+* text=auto
+
+# Notebooks are JSON and diff badly enough already - keep LF in the worktree too.
+*.ipynb text eol=lf
+
+# Never apply text munging to binaries.
+*.png binary
+*.jpg binary
+*.pt  binary
+*.pth binary
