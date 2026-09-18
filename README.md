@@ -15,7 +15,7 @@ That check is the deliverable. It is the difference between using a dataset and 
 **In progress.** Protocol and pass criteria are in [`docs/eurosat-pipeline.md`](docs/eurosat-pipeline.md), committed before the first run.
 
 - [ ] **P1** — trains end to end on the GPU
-- [ ] **P2** — `EuroSATRaw` agrees with `torchvision.datasets.EuroSAT`
+- [-] **P2** — `EuroSATRaw` agrees with `torchvision.datasets.EuroSAT`
 - [ ] **P3** — two runs at one config produce identical loss at every logged step
 - [ ] **P4** — the split is reproducible across processes
 - [ ] **P5** — *(optional)* seed-to-seed spread in final validation accuracy
