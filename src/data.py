@@ -1,8 +1,10 @@
 from pathlib import Path
 import random
 from PIL import Image
+from numpy import indices
 import torch
 from torch.utils.data import Dataset
+from collections import defaultdict
 
 # Define a custom dataset class for EuroSAT
 class EuroSATRaw(Dataset):
@@ -61,4 +63,47 @@ def assert_matches_reference(mine, reference, n, seed):
 
         assert (mine_label == ref_label), f"Label mismatch at index {i}: {mine_label} vs {ref_label}"
         assert torch.equal(mine_image, ref_image), f"Image mismatch at index {i}: {mine_image} vs {ref_image}"
+
+
+
+def make_splits(cfg):
+
+    # build the index of all samples in the dataset
+    index  = EuroSATRaw(cfg.data_root, transform=None).samples
+
+    # group the indices by class
+    class_to_indices = defaultdict(list)
+
+    # initialize the dictionary with empty lists for each class
+    for i, (path, label) in enumerate(index):
+        class_to_indices[label].append(i)
+
+    # for each class, shuffle the indices and split them into train, val, and test
+    # a generator is used to ensure that the shuffling is deterministic based on the provided seed
+    g = torch.Generator().manual_seed(cfg.split_seed)
+
+    train_idx, val_idx, test_idx = [], [], []
+
+    for label in sorted(class_to_indices):
+        indices = class_to_indices[label]
+
+        # Shuffle the indices for the current class
+        perm = torch.randperm(len(indices), generator=g)
+        shuffled_indices = [indices[i] for i in perm.tolist()]
+
+        # Calculate the number of samples for test and validation splits based on the provided configuration
+        n_test = int(len(shuffled_indices) * cfg.test_frac)
+        n_val = int(len(shuffled_indices) * cfg.val_frac)
+
+        # Extend the respective lists with the shuffled indices for test, validation, and training splits
+        test_idx.extend(shuffled_indices[:n_test])
+        val_idx.extend(shuffled_indices[n_test:n_test + n_val])
+        train_idx.extend(shuffled_indices[n_test + n_val:])
+
+    return (
+        train_idx,
+        val_idx,
+        test_idx,
+    )
+
 

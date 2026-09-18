@@ -17,7 +17,7 @@ That check is the deliverable. It is the difference between using a dataset and 
 - [ ] **P1** — trains end to end on the GPU
 - [-] **P2** — `EuroSATRaw` agrees with `torchvision.datasets.EuroSAT`
 - [ ] **P3** — two runs at one config produce identical loss at every logged step
-- [ ] **P4** — the split is reproducible across processes
+- [-] **P4** — the split is reproducible across processes
 - [ ] **P5** — *(optional)* seed-to-seed spread in final validation accuracy
 
 **Accuracy is deliberately not a pass criterion, and no accuracy claim is made here.** A mediocre classifier that runs the full pipeline on device satisfies every criterion above; a good one obtained by fighting the dataloader for three days satisfies none of them better.
