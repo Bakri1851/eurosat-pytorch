@@ -12,7 +12,7 @@ That check is the deliverable. It is the difference between using a dataset and 
 
 ## Status
 
-**In progress.** Protocol and pass criteria are in [`docs/eurosat-pipeline.md`](docs/eurosat-pipeline.md), committed before the first run.
+**Complete, 20 September 2026.** Protocol and pass criteria are in [`docs/eurosat-pipeline.md`](docs/eurosat-pipeline.md), committed before the first run. Measured outcomes are appended below the line at the end of this file.
 
 - [x] **P1** — trains end to end on the GPU
 - [x] **P2** — `EuroSATRaw` agrees with `torchvision.datasets.EuroSAT`
@@ -143,8 +143,34 @@ This is what P2 catches, and it is why P2 compares `(tensor, label)` pairs at sa
 
 ## P5 — noise floor
 
-[five accuracies, mean, sd, spread; the ±35% sampling error on n=5; the
-resolvable-difference arithmetic; the two-epoch caveat]
+Five runs at one configuration: `split_seed = 0` held fixed, `init_seed` varying over 0–4, two epochs each. Everything about the data is constant across the five; the only things moving are the weight initialisation and the shuffle order.
+
+| `init_seed` | final validation accuracy |
+|---|---|
+| 0 | 0.7889 |
+| 1 | 0.7314 |
+| 2 | 0.7904 |
+| 3 | 0.7504 |
+| 4 | 0.7267 |
+
+Mean 0.758, sample standard deviation 0.031, and 0.064 between the best and worst run. Raw values in [`results/seed-spread.json`](results/seed-spread.json). The mean is not a performance claim — see the next section.
+
+**Six and a half points of spread from initialisation alone**, at a fixed split, on a fixed configuration, with nothing else varying. That is larger than a good many differences reported in the literature as improvements, and it is the entire reason this measurement comes before any comparison rather than after one.
+
+**The standard deviation is itself poorly determined.** At *n* = 5 the sampling error on an estimate of σ is roughly ±35%, and the exact interval is worse than that makes it sound: the 95% confidence interval on σ runs from 0.018 to 0.088, a factor of 4.8 end to end. So 0.031 is an order-of-magnitude statement, not a constant, and it should not be carried forward as a known quantity.
+
+**What it implies about resolution.** Comparing two methods at *k* seeds each, the standard error on the difference in means is σ√(2/*k*):
+
+| seeds per arm | se(difference) | significant at 95% | detectable at 80% power |
+|---|---|---|---|
+| 5 | 0.019 | 4.5 pp | 6.2 pp |
+| 10 | 0.014 | 2.9 pp | 4.1 pp |
+| 20 | 0.010 | 2.0 pp | 2.8 pp |
+| 30 | 0.008 | 1.6 pp | 2.3 pp |
+
+At five seeds per arm, a gap below about four and a half percentage points cannot be told from initialisation noise, and a real gap has to reach six before there is a fair chance of catching it at all. This is the seed-budget question stated in run-hours: three optimisers at twenty seeds is sixty runs per configuration, before a single tuning trial is counted. Running five and reporting the winner would be reporting the seed.
+
+**Two caveats, both cutting against reuse of this number.** Two epochs is short — the model is nowhere near converged, so some of this spread is runs caught at different points along their trajectories rather than settling in genuinely different places, and the spread at convergence need not be the same. And this is untuned SGD on a small CNN, which is not what Phase 2 compares. Phase 2 measures its own noise floor, at its own budget, on its own model. What transfers is the procedure, not 0.031.
 
 ## What this does not establish
 
