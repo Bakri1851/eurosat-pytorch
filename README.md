@@ -118,16 +118,28 @@ run; everything below is measured.
 
 ## Decisions the measurements drove
 
-**Stratified split.** [the hypergeometric argument — sd ≈ 15 on Pasture's 300]
+**Stratified split.** The class counts are uneven and Pasture is the smallest at 2,000. A split taken by shuffling all 27,000 at once would draw Pasture's test images hypergeometrically: expected 300 in a 15% test set, standard deviation 15.4, a 95% range of roughly 270 to 330. That is a ±5% swing in the rarest class's support, decided by nothing but `split_seed`.
 
-**Plain accuracy is adequate** at 1.5:1. [per-class logged anyway as a bug detector]
+It matters here for one specific reason. P5 measures seed-to-seed spread with `split_seed` held fixed and `init_seed` varying, so the number it yields is the noise floor of *initialisation*. Under an unstratified split, moving `split_seed` would move per-class support as well, and the two sources of variance could not be separated afterwards — which is exactly the separation Phase 2 needs in order to attribute a gap between optimisers to the optimiser. `make_splits` therefore shuffles within each class and slices each class separately.
+
+**Plain accuracy is adequate** at 1.5:1. The majority classes hold 3,000 and the minority 2,000, so no single class dominates the aggregate and a macro-averaged metric would buy very little. Per-class accuracy is logged anyway — not as the reported metric, but as a bug detector. A fault that misaligns labels shows up as one class collapsing long before it shows up in the average.
 
 ## The trap that was not in §6
 
-[`ImageFolder` sorts filenames lexicographically — `sorted(fnames)`. Numeric
-sorting silently misaligns every index while both implementations look correct.
-This is what P2 caught, and the negative control in `tests/test_data.py`
-demonstrates P2 can catch it.]
+`ImageFolder` builds its sample list with `sorted()` on the filenames, which is lexicographic. EuroSAT's filenames carry an unpadded integer, so lexicographic and numeric order diverge at the *second* element and never re-converge:
+
+```
+torchvision order (sorted):       AnnualCrop_1, AnnualCrop_10, AnnualCrop_100, AnnualCrop_1000, ...
+numeric order (what NOT to use):  AnnualCrop_1, AnnualCrop_2,  AnnualCrop_3,   AnnualCrop_4,    ...
+```
+
+First index at which they differ: 1.
+
+Sorting numerically is the more obvious thing to do, because it is what a person means by "in order". Do it and the two implementations still agree on length, on `classes`, on class order, and on all 27,000 files. The labels even stay correct — each path keeps its own label, so a model trained on the numerically-sorted version would be unharmed.
+
+That is what makes it dangerous. Nothing raises, nothing degrades, and the dataset is simply not the same object as torchvision's. Anything travelling by index stops meaning what it meant: a split computed under one ordering and applied under the other selects different images, and a reference comparison at index *i* compares two unrelated samples.
+
+This is what P2 catches, and it is why P2 compares `(tensor, label)` pairs at sampled indices rather than comparing metadata — length, class list and class order all agree here. The negative control in `tests/test_data.py` re-sorts a copy numerically and asserts the comparison *fails*, so the check is shown to be capable of failing rather than assumed to be.
 
 ## P5 — noise floor
 
@@ -136,14 +148,25 @@ resolvable-difference arithmetic; the two-epoch caveat]
 
 ## What this does not establish
 
-[accuracy is not a criterion; 0.52 cleared as a bug detector only; no accuracy
-claim is made]
+Accuracy is not a pass criterion and no accuracy claim is made here. The model is a small CNN trained for a few epochs at a fixed configuration that was never tuned. Its validation accuracy is a by-product of the pipeline running, not a result about EuroSAT, and it should not be set beside anything published on this dataset.
+
+The 0.52 in the protocol is a 2024 coursework figure from an MLP on flattened 32×32 pixels — a floor set by discarding the spatial structure. It functions here as a bug detector: a convolutional model landing near it has something broken. Clearing it establishes that the pipeline works, which is what P1 already says, and nothing more.
+
+None of P1–P5 says the model is good, the architecture sensible, or the optimiser settings reasonable. They say the data layer is mine and checked, the runs are reproducible, and the split is stable. That is the whole claim.
 
 ## On writing verification code
 
-[three checks initially could not fail — the tensor `.size` comparison, a
-negative control binding a local, an assert on a list literal. Each ran, printed
-something encouraging, and tested nothing.]
+The most useful thing this exercise produced is not in the criteria table.
+
+Three checks written during the build passed on their first run and could not have done otherwise:
+
+- **A comparison of shapes standing in for a comparison of values.** Every sample here is a 3×64×64 tensor, so a check that two samples agree on shape agrees for every pair of samples that will ever be drawn — including pairs that ought to have disagreed. It reported success across the whole sample and tested nothing. `torch.equal` is the fix.
+- **A negative control that rebound a local name instead of mutating the object.** The control is meant to break the dataset and confirm the comparison notices. Rebinding inside the function left the object it was supposed to corrupt untouched, so the "broken" dataset was the working one, and the control confirmed that a correct dataset matches a correct dataset.
+- **An `assert` on a list literal.** A non-empty list is truthy, so the assertion holds whatever the comparisons inside it evaluate to. It is a syntactically valid way to write a check down and never run it.
+
+Each of them ran, printed something encouraging, and established nothing. The shape they share is that all three fail *open*: the failure mode of a broken check is a pass, so the thing that would have told me was the thing that was broken.
+
+Passing checks are not evidence unless the check has been shown capable of failing. That is why the negative control in `tests/test_data.py` exists, and why the control is now itself checked.
 
 ## Licence
 
