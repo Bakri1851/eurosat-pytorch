@@ -316,3 +316,147 @@ This is a fluency exercise with one verification criterion attached. It is not a
 ---
 
 *Pre-registered 17 September 2026. Results, measured numbers and the resolution of the **verify** items above get appended when the milestone closes.*
+
+---
+
+# Results — 20 September 2026
+
+Everything above this line was committed before the first run. Everything below
+is measured. Environment: torch 2.11.0+cu128, torchvision 0.26.0+cu128,
+Python 3.13, RTX 5070 Laptop (sm_120).
+
+## Criteria
+
+| | Criterion | Outcome |
+|---|---|---|
+| **P1** | trains end to end on GPU | **pass** — 3 epochs in 63.6 s, train loss 1.069 → 0.612 |
+| **P2** | `EuroSATRaw` agrees with torchvision | **pass** — 300 seeded indices, `torch.equal`, exact |
+| **P3** | two runs identical at every logged step | **pass** — exact equality, no tolerance required |
+| **P4** | split reproducible across processes | **pass** — identical test indices in two separate processes |
+| **P5** | seed-to-seed spread | **measured** — sd ≈ 0.031 in final validation accuracy |
+
+P3 deserves the emphasis: the criterion allowed for recording an achieved
+tolerance if exact equality proved unattainable. It did not. Two runs at one
+config produce bit-identical `train_loss`, `val_loss` and `val_acc`, and the same
+first-two-epoch values recur across separate invocations on different days.
+
+## Resolution of the **verify** items
+
+**Download host.** Confirmed for torchvision 0.26.0: pinned HuggingFace commit
+`c877bcd43f099cd0196738f714544e355477f3fd`, md5 `c8fa014336c82ac7804f0398fcb19387`.
+The trap in §3.1 is real as written — `_check_exists()` tests only that
+`data/eurosat/2750` exists, not that extraction completed.
+
+**N = 27,000**, confirmed directly.
+
+**Per-class counts**, previously unmeasured:
+
+| count | classes |
+|---|---|
+| 3,000 | AnnualCrop, Forest, HerbaceousVegetation, Residential, SeaLake |
+| 2,500 | Highway, Industrial, PermanentCrop, River |
+| 2,000 | Pasture |
+
+Imbalance 1.5:1. The counts are clean multiples of 500, which is itself evidence
+the extraction completed — a partial tree gives ragged numbers.
+
+**Channel statistics**, over the 18,900 training images only:
+
+| channel | mean | std |
+|---|---|---|
+| R | 0.3440 | 0.2024 |
+| G | 0.3801 | 0.1370 |
+| B | 0.4076 | 0.1158 |
+
+Computed on the train split rather than all 27,000, per trap 3, so they differ
+slightly from constants published over the full dataset. The ordering is
+physically sensible — blue highest mean (Rayleigh scattering over land), red
+widest spread (chlorophyll absorption separating vegetation from soil and
+built-up) — which is a free check on the whole data path.
+
+## Decisions the measurements drove
+
+**The split is stratified.** Not because 1.5:1 is dangerous, but because of the
+two-seed design in §4. Test is 4,050 images; under an unstratified split,
+Pasture's share is hypergeometric with mean 300 and sd ≈ 15. Harmless for
+accuracy, but it would make `split_seed` change both *which* images land in test
+and *how many of each class*. Stratifying makes that knob mean exactly one thing.
+Always on, and deliberately not a config field — a field would imply an axis to
+sweep. Verified: test contains exactly 450 of each 3,000-image class, 375 of each
+2,500, and 300 Pasture.
+
+**Plain accuracy is adequate** at this imbalance; micro and macro barely diverge.
+Per-class accuracy is logged anyway as a bug detector — one class near 0% is the
+signature of a broken label mapping.
+
+## The trap that is not in §6
+
+`ImageFolder.make_dataset` builds its file list with `for fname in sorted(fnames)`
+— a plain lexicographic string sort. EuroSAT filenames carry an unpadded integer,
+so lexicographic and numeric order diverge from the second element on:
+
+    AnnualCrop_1, AnnualCrop_10, AnnualCrop_100, AnnualCrop_1000, ... AnnualCrop_2
+
+Sorting numerically — the more obviously *correct* thing to do — makes index *i*
+a different image in each implementation. Both datasets remain individually
+correct; only the correspondence breaks. §7 lists class ordering, transforms and
+decode path as the likely causes of P2 failing. This was not among them and was
+the one that actually fired.
+
+`tests/test_data.py` carries a negative control: an `EuroSATRaw` whose `samples`
+are re-sorted numerically must fail `assert_matches_reference`. Without it, P2
+passing would only mean the check ran.
+
+## P5 — the noise floor
+
+Five runs, `epochs=2`, `split_seed=0` fixed, `init_seed` 0–4:
+
+    0.7889, 0.7314, 0.7904, 0.7504, 0.7267
+
+mean 0.7575, sd 0.0306, range 0.7267–0.7904 (spread 0.0637).
+
+**Treat the sd as an order of magnitude.** With n = 5 the sampling error on a
+standard deviation is roughly 1/√(2(n−1)) ≈ 35% relative, so this is "about 3
+points", not 3.06.
+
+**What it implies for Phase 2.** With five seeds per method, the standard error of
+each mean is 0.031/√5 ≈ 0.014, so the SE of a difference is ≈ 0.019 and the
+smallest resolvable gap at ~95% is about 4–5 percentage points. Resolvable
+difference scales as 1/√n, so halving that threshold costs four times the runs.
+This is a seed-budget input, available before the protocol is written rather than
+after.
+
+**And it is an upper bound.** Measured at 2 epochs, far from convergence, where
+run-to-run divergence is largest. Whatever Phase 2 trains — per §9, not this model
+— its own noise floor needs measuring at that protocol's settings before the seed
+budget is fixed. The number here does not transfer; the practice of having one
+does.
+
+## What this does not establish
+
+Accuracy, as §1 committed. A mediocre classifier running the full pipeline on
+device clears every criterion above. The 0.52 floor from §3.2 was cleared
+comfortably, which tells us the pipeline is not broken and nothing more. No
+accuracy claim is made here or in the README.
+
+## On writing verification code
+
+Three of the checks written for this milestone initially could not fail:
+
+- comparing `mine_image.size` to `ref_image.size` — on tensors `.size` is a bound
+  method, so the comparison is `False` even for identical tensors; and had it been
+  `.size()`, every EuroSAT image is 64×64×3, so it would have passed for any
+  pairing including a fully scrambled index order
+- the negative control binding `broken_samples = sorted(...)` to a new local
+  instead of assigning to `broken.samples`, leaving the "broken" dataset correct
+- `assert [expr]` rather than `assert expr` — a non-empty list is always truthy
+
+Each ran, printed something encouraging, and tested nothing. Two were caught only
+because the negative controls raised rather than printed. That is the argument for
+`else: raise` over a print, and for writing a control that must fail alongside
+every check that must pass.
+
+---
+
+*Milestone closed 20 September 2026. Phase 0 of the roadmap in
+[training-dynamics](https://github.com/Bakri1851/training-dynamics) is complete.*

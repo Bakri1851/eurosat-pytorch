@@ -85,6 +85,67 @@ whether the neural scaling exponent depends on the optimiser. It is kept separat
 because it is a self-contained piece of work with its own criteria, and because the
 model here is not the model that project scales.
 
+
+---
+
+# Results — 20 September 2026
+
+Appended on closing. Everything above this line was committed before the first
+run; everything below is measured.
+
+## Criteria
+
+| | Criterion | Outcome |
+|---|---|---|
+| **P1** | trains end to end on GPU | pass — 3 epochs, 63.6 s, train loss 1.069 → 0.612 |
+| **P2** | `EuroSATRaw` agrees with torchvision | pass — 300 seeded indices, `torch.equal`, exact |
+| **P3** | two runs identical at every logged step | pass — **exact** equality, not a tolerance |
+| **P4** | split reproducible across processes | pass — identical test indices in two processes |
+| **P5** | seed-to-seed spread | measured — sd ≈ 0.031 (see below) |
+
+## Resolution of the **verify** items
+
+- **Download host.** Confirmed for torchvision 0.26.0+cu128: pinned HuggingFace
+  commit `c877bcd43f099cd0196738f714544e355477f3fd`, md5 `c8fa014336c82ac7804f0398fcb19387`.
+  The `_check_exists()` trap in §3.1 is real as written — it tests only that
+  `data/eurosat/2750` exists, not that extraction completed.
+- **N = 27,000**, confirmed directly.
+- **Per-class counts**, previously unmeasured: 3,000 each for AnnualCrop, Forest,
+  HerbaceousVegetation, Residential, SeaLake; 2,500 each for Highway, Industrial,
+  PermanentCrop, River; 2,000 for Pasture. Imbalance 1.5:1.
+- **Channel statistics**, over the 18,900 training images only:
+  mean `(0.3440, 0.3801, 0.4076)`, std `(0.2024, 0.1370, 0.1158)`.
+
+## Decisions the measurements drove
+
+**Stratified split.** [the hypergeometric argument — sd ≈ 15 on Pasture's 300]
+
+**Plain accuracy is adequate** at 1.5:1. [per-class logged anyway as a bug detector]
+
+## The trap that was not in §6
+
+[`ImageFolder` sorts filenames lexicographically — `sorted(fnames)`. Numeric
+sorting silently misaligns every index while both implementations look correct.
+This is what P2 caught, and the negative control in `tests/test_data.py`
+demonstrates P2 can catch it.]
+
+## P5 — noise floor
+
+[five accuracies, mean, sd, spread; the ±35% sampling error on n=5; the
+resolvable-difference arithmetic; the two-epoch caveat]
+
+## What this does not establish
+
+[accuracy is not a criterion; 0.52 cleared as a bug detector only; no accuracy
+claim is made]
+
+## On writing verification code
+
+[three checks initially could not fail — the tensor `.size` comparison, a
+negative control binding a local, an assert on a list literal. Each ran, printed
+something encouraging, and tested nothing.]
+
 ## Licence
 
 MIT — see [`LICENSE`](LICENSE).
+
